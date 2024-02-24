@@ -41,7 +41,6 @@ type HandlerOptions struct {
 	Host          string
 	IPs           []string
 	TCPMode       bool
-	IPRoutes      []IPRoute
 	ProxyAgent    string
 	HTTPTunnel    bool
 }
@@ -203,13 +202,6 @@ func IPsHandlerOption(ips []string) HandlerOption {
 func TCPModeHandlerOption(b bool) HandlerOption {
 	return func(opts *HandlerOptions) {
 		opts.TCPMode = b
-	}
-}
-
-// IPRoutesHandlerOption sets the IP routes for tun tunnel.
-func IPRoutesHandlerOption(routes ...IPRoute) HandlerOption {
-	return func(opts *HandlerOptions) {
-		opts.IPRoutes = routes
 	}
 }
 

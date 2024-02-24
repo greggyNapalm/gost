@@ -119,10 +119,10 @@ type HandshakeOptions struct {
 	Interval   time.Duration
 	Retry      int
 	TLSConfig  *tls.Config
-	WSOptions  *WSOptions
-	KCPConfig  *KCPConfig
-	QUICConfig *QUICConfig
-	SSHConfig  *SSHConfig
+	//WSOptions  *WSOptions
+	//KCPConfig  *KCPConfig
+	//QUICConfig *QUICConfig
+	//SSHConfig  *SSHConfig
 }
 
 // HandshakeOption allows a common way to set HandshakeOptions.
@@ -177,33 +177,33 @@ func TLSConfigHandshakeOption(config *tls.Config) HandshakeOption {
 	}
 }
 
-// WSOptionsHandshakeOption specifies the websocket options used by websocket handshake
-func WSOptionsHandshakeOption(options *WSOptions) HandshakeOption {
-	return func(opts *HandshakeOptions) {
-		opts.WSOptions = options
-	}
-}
-
-// KCPConfigHandshakeOption specifies the KCP config used by KCP handshake
-func KCPConfigHandshakeOption(config *KCPConfig) HandshakeOption {
-	return func(opts *HandshakeOptions) {
-		opts.KCPConfig = config
-	}
-}
-
-// QUICConfigHandshakeOption specifies the QUIC config used by QUIC handshake
-func QUICConfigHandshakeOption(config *QUICConfig) HandshakeOption {
-	return func(opts *HandshakeOptions) {
-		opts.QUICConfig = config
-	}
-}
-
-// SSHConfigHandshakeOption specifies the ssh config used by SSH client handshake.
-func SSHConfigHandshakeOption(config *SSHConfig) HandshakeOption {
-	return func(opts *HandshakeOptions) {
-		opts.SSHConfig = config
-	}
-}
+//// WSOptionsHandshakeOption specifies the websocket options used by websocket handshake
+//func WSOptionsHandshakeOption(options *WSOptions) HandshakeOption {
+//	return func(opts *HandshakeOptions) {
+//		opts.WSOptions = options
+//	}
+//}
+//
+//// KCPConfigHandshakeOption specifies the KCP config used by KCP handshake
+//func KCPConfigHandshakeOption(config *KCPConfig) HandshakeOption {
+//	return func(opts *HandshakeOptions) {
+//		opts.KCPConfig = config
+//	}
+//}
+//
+//// QUICConfigHandshakeOption specifies the QUIC config used by QUIC handshake
+//func QUICConfigHandshakeOption(config *QUICConfig) HandshakeOption {
+//	return func(opts *HandshakeOptions) {
+//		opts.QUICConfig = config
+//	}
+//}
+//
+//// SSHConfigHandshakeOption specifies the ssh config used by SSH client handshake.
+//func SSHConfigHandshakeOption(config *SSHConfig) HandshakeOption {
+//	return func(opts *HandshakeOptions) {
+//		opts.SSHConfig = config
+//	}
+//}
 
 // ConnectOptions describes the options for Connector.Connect.
 type ConnectOptions struct {

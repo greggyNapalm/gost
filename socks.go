@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/xtaci/smux"
 	"io"
 	"net"
 	"net/url"
@@ -17,7 +18,7 @@ import (
 	"github.com/go-gost/gosocks4"
 	"github.com/go-gost/gosocks5"
 	"github.com/go-log/log"
-	smux "github.com/xtaci/smux"
+	//smux "github.com/xtaci/smux"
 )
 
 const (
@@ -401,12 +402,12 @@ type socks5MuxBindTransporter struct {
 }
 
 // SOCKS5MuxBindTransporter creates a Transporter for SOCKS5 multiplex bind client.
-func SOCKS5MuxBindTransporter(bindAddr string) Transporter {
-	return &socks5MuxBindTransporter{
-		bindAddr: bindAddr,
-		sessions: make(map[string]*muxSession),
-	}
-}
+//func SOCKS5MuxBindTransporter(bindAddr string) Transporter {
+//	return &socks5MuxBindTransporter{
+//		bindAddr: bindAddr,
+//		sessions: make(map[string]*muxSession),
+//	}
+//}
 
 func (tr *socks5MuxBindTransporter) Dial(addr string, options ...DialOption) (conn net.Conn, err error) {
 	opts := &DialOptions{}
@@ -442,100 +443,100 @@ func (tr *socks5MuxBindTransporter) Dial(addr string, options ...DialOption) (co
 	return session.conn, nil
 }
 
-func (tr *socks5MuxBindTransporter) Handshake(conn net.Conn, options ...HandshakeOption) (net.Conn, error) {
-	opts := &HandshakeOptions{}
-	for _, option := range options {
-		option(opts)
-	}
+//func (tr *socks5MuxBindTransporter) Handshake(conn net.Conn, options ...HandshakeOption) (net.Conn, error) {
+//	opts := &HandshakeOptions{}
+//	for _, option := range options {
+//		option(opts)
+//	}
+//
+//	timeout := opts.Timeout
+//	if timeout <= 0 {
+//		timeout = HandshakeTimeout
+//	}
+//
+//	tr.sessionMutex.Lock()
+//	defer tr.sessionMutex.Unlock()
+//
+//	conn.SetDeadline(time.Now().Add(timeout))
+//	defer conn.SetDeadline(time.Time{})
+//
+//	session, ok := tr.sessions[opts.Addr]
+//	if !ok || session.session == nil {
+//		s, err := tr.initSession(conn, tr.bindAddr, opts)
+//		if err != nil {
+//			conn.Close()
+//			delete(tr.sessions, opts.Addr)
+//			return nil, err
+//		}
+//		session = s
+//		tr.sessions[opts.Addr] = session
+//	}
+//
+//	return &muxBindClientConn{session: session}, nil
+//}
 
-	timeout := opts.Timeout
-	if timeout <= 0 {
-		timeout = HandshakeTimeout
-	}
+//func (tr *socks5MuxBindTransporter) initSession(conn net.Conn, addr string, opts *HandshakeOptions) (*muxSession, error) {
+//	if opts == nil {
+//		opts = &HandshakeOptions{}
+//	}
+//
+//	cc, err := socks5Handshake(conn,
+//		userSocks5HandshakeOption(opts.User),
+//	)
+//	if err != nil {
+//		return nil, err
+//	}
+//	conn = cc
+//
+//	bindAddr, err := net.ResolveTCPAddr("tcp", addr)
+//	if err != nil {
+//		return nil, err
+//	}
+//
+//	req := gosocks5.NewRequest(CmdMuxBind, &gosocks5.Addr{
+//		Type: gosocks5.AddrIPv4,
+//		Host: bindAddr.IP.String(),
+//		Port: uint16(bindAddr.Port),
+//	})
+//
+//	if err = req.Write(conn); err != nil {
+//		return nil, err
+//	}
+//
+//	if Debug {
+//		log.Log("[socks5] mbind\n", req)
+//	}
+//
+//	reply, err := gosocks5.ReadReply(conn)
+//	if err != nil {
+//		return nil, err
+//	}
+//
+//	if Debug {
+//		log.Log("[socks5] mbind\n", reply)
+//	}
+//
+//	if reply.Rep != gosocks5.Succeeded {
+//		log.Logf("[socks5] mbind on %s failure", addr)
+//		return nil, fmt.Errorf("SOCKS5 mbind on %s failure", addr)
+//	}
+//	baddr, err := net.ResolveTCPAddr("tcp", reply.Addr.String())
+//	if err != nil {
+//		return nil, err
+//	}
+//	log.Logf("[socks5] mbind on %s OK", baddr)
+//
+//	// Upgrade connection to multiplex stream.
+//	session, err := smux.Server(conn, smux.DefaultConfig())
+//	if err != nil {
+//		return nil, err
+//	}
+//	return &muxSession{conn: conn, session: session}, nil
+//}
 
-	tr.sessionMutex.Lock()
-	defer tr.sessionMutex.Unlock()
-
-	conn.SetDeadline(time.Now().Add(timeout))
-	defer conn.SetDeadline(time.Time{})
-
-	session, ok := tr.sessions[opts.Addr]
-	if !ok || session.session == nil {
-		s, err := tr.initSession(conn, tr.bindAddr, opts)
-		if err != nil {
-			conn.Close()
-			delete(tr.sessions, opts.Addr)
-			return nil, err
-		}
-		session = s
-		tr.sessions[opts.Addr] = session
-	}
-
-	return &muxBindClientConn{session: session}, nil
-}
-
-func (tr *socks5MuxBindTransporter) initSession(conn net.Conn, addr string, opts *HandshakeOptions) (*muxSession, error) {
-	if opts == nil {
-		opts = &HandshakeOptions{}
-	}
-
-	cc, err := socks5Handshake(conn,
-		userSocks5HandshakeOption(opts.User),
-	)
-	if err != nil {
-		return nil, err
-	}
-	conn = cc
-
-	bindAddr, err := net.ResolveTCPAddr("tcp", addr)
-	if err != nil {
-		return nil, err
-	}
-
-	req := gosocks5.NewRequest(CmdMuxBind, &gosocks5.Addr{
-		Type: gosocks5.AddrIPv4,
-		Host: bindAddr.IP.String(),
-		Port: uint16(bindAddr.Port),
-	})
-
-	if err = req.Write(conn); err != nil {
-		return nil, err
-	}
-
-	if Debug {
-		log.Log("[socks5] mbind\n", req)
-	}
-
-	reply, err := gosocks5.ReadReply(conn)
-	if err != nil {
-		return nil, err
-	}
-
-	if Debug {
-		log.Log("[socks5] mbind\n", reply)
-	}
-
-	if reply.Rep != gosocks5.Succeeded {
-		log.Logf("[socks5] mbind on %s failure", addr)
-		return nil, fmt.Errorf("SOCKS5 mbind on %s failure", addr)
-	}
-	baddr, err := net.ResolveTCPAddr("tcp", reply.Addr.String())
-	if err != nil {
-		return nil, err
-	}
-	log.Logf("[socks5] mbind on %s OK", baddr)
-
-	// Upgrade connection to multiplex stream.
-	session, err := smux.Server(conn, smux.DefaultConfig())
-	if err != nil {
-		return nil, err
-	}
-	return &muxSession{conn: conn, session: session}, nil
-}
-
-func (tr *socks5MuxBindTransporter) Multiplex() bool {
-	return true
-}
+//func (tr *socks5MuxBindTransporter) Multiplex() bool {
+//	return true
+//}
 
 type socks5UDPConnector struct {
 	User *url.Userinfo

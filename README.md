@@ -1,5 +1,7 @@
-GO Simple Tunnel
+GO Simple Tunnel - cuted
 ======
+
+I were needed only gost features to test UDP transport over TCP based socks5 protocl. I've cuted all the protocols support that not needed for my task and that blocks usage of golang > 1.19.
 
 ### GO语言实现的安全隧道
 
