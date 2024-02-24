@@ -8,11 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"fmt"
-
-	"github.com/go-gost/gosocks5"
 	"github.com/go-log/log"
-	smux "github.com/xtaci/smux"
+	//smux "github.com/xtaci/smux"
 )
 
 type forwardConnector struct {
@@ -347,264 +344,264 @@ func (h *udpRemoteForwardHandler) Handle(conn net.Conn) {
 	log.Logf("[rudp] %s >-< %s", conn.RemoteAddr(), node.Addr)
 }
 
-type tcpRemoteForwardListener struct {
-	addr       net.Addr
-	chain      *Chain
-	connChan   chan net.Conn
-	ln         net.Listener
-	session    *muxSession
-	sessionMux sync.Mutex
-	closed     chan struct{}
-	closeMux   sync.Mutex
-}
+//type tcpRemoteForwardListener struct {
+//	addr       net.Addr
+//	chain      *Chain
+//	connChan   chan net.Conn
+//	ln         net.Listener
+//	session    *muxSession
+//	sessionMux sync.Mutex
+//	closed     chan struct{}
+//	closeMux   sync.Mutex
+//}
 
-// TCPRemoteForwardListener creates a Listener for TCP remote port forwarding server.
-func TCPRemoteForwardListener(addr string, chain *Chain) (Listener, error) {
-	laddr, err := net.ResolveTCPAddr("tcp", addr)
-	if err != nil {
-		return nil, err
-	}
-
-	ln := &tcpRemoteForwardListener{
-		addr:     laddr,
-		chain:    chain,
-		connChan: make(chan net.Conn, 1024),
-		closed:   make(chan struct{}),
-	}
-
-	if !ln.isChainValid() {
-		ln.ln, err = net.Listen("tcp", ln.addr.String())
-		return ln, err
-	}
-
-	go ln.listenLoop()
-
-	return ln, err
-}
-
-func (l *tcpRemoteForwardListener) isChainValid() bool {
-	if l.chain.IsEmpty() {
-		return false
-	}
-
-	lastNode := l.chain.LastNode()
-	if (lastNode.Protocol == "forward" && lastNode.Transport == "ssh") ||
-		lastNode.Protocol == "socks5" || lastNode.Protocol == "" {
-		return true
-	}
-	return false
-}
-
-func (l *tcpRemoteForwardListener) listenLoop() {
-	var tempDelay time.Duration
-
-	for {
-		conn, err := l.accept()
-
-		select {
-		case <-l.closed:
-			if conn != nil {
-				conn.Close()
-			}
-			return
-		default:
-		}
-
-		if err != nil {
-			if tempDelay == 0 {
-				tempDelay = 1000 * time.Millisecond
-			} else {
-				tempDelay *= 2
-			}
-			if max := 6 * time.Second; tempDelay > max {
-				tempDelay = max
-			}
-			log.Logf("[rtcp] accept error: %v; retrying in %v", err, tempDelay)
-			time.Sleep(tempDelay)
-			continue
-		}
-
-		tempDelay = 0
-
-		select {
-		case l.connChan <- conn:
-		default:
-			conn.Close()
-			log.Logf("[rtcp] %s - %s: connection queue is full", conn.RemoteAddr(), conn.LocalAddr())
-		}
-	}
-}
-
-func (l *tcpRemoteForwardListener) Accept() (conn net.Conn, err error) {
-	if l.ln != nil {
-		return l.ln.Accept()
-	}
-
-	select {
-	case conn = <-l.connChan:
-	case <-l.closed:
-		err = errors.New("closed")
-	}
-
-	return
-}
-
-func (l *tcpRemoteForwardListener) accept() (conn net.Conn, err error) {
-	lastNode := l.chain.LastNode()
-	if lastNode.Protocol == "forward" && lastNode.Transport == "ssh" {
-		return l.chain.Dial(l.addr.String())
-	}
-
-	if l.isChainValid() {
-		if lastNode.GetBool("mbind") {
-			return l.muxAccept() // multiplexing support for binding.
-		}
-
-		cc, er := l.chain.Conn()
-		if er != nil {
-			return nil, er
-		}
-		conn, err = l.waitConnectSOCKS5(cc)
-		if err != nil {
-			cc.Close()
-		}
-	}
-	return
-}
-
-func (l *tcpRemoteForwardListener) muxAccept() (conn net.Conn, err error) {
-	session, err := l.getSession()
-	if err != nil {
-		return nil, err
-	}
-	cc, err := session.Accept()
-	if err != nil {
-		session.Close()
-		return nil, err
-	}
-
-	return cc, nil
-}
-
-func (l *tcpRemoteForwardListener) getSession() (s *muxSession, err error) {
-	l.sessionMux.Lock()
-	defer l.sessionMux.Unlock()
-
-	if l.session != nil && !l.session.IsClosed() {
-		return l.session, nil
-	}
-
-	conn, err := l.chain.Conn()
-	if err != nil {
-		return nil, err
-	}
-
-	defer func(c net.Conn) {
-		if err != nil {
-			c.Close()
-		}
-	}(conn)
-
-	conn.SetDeadline(time.Now().Add(HandshakeTimeout))
-	defer conn.SetDeadline(time.Time{})
-
-	conn, err = socks5Handshake(conn, userSocks5HandshakeOption(l.chain.LastNode().User))
-	if err != nil {
-		return nil, err
-	}
-	req := gosocks5.NewRequest(CmdMuxBind, toSocksAddr(l.addr))
-	if err := req.Write(conn); err != nil {
-		log.Log("[rtcp] SOCKS5 BIND request: ", err)
-		return nil, err
-	}
-
-	rep, err := gosocks5.ReadReply(conn)
-	if err != nil {
-		log.Log("[rtcp] SOCKS5 BIND reply: ", err)
-		return nil, err
-	}
-	if rep.Rep != gosocks5.Succeeded {
-		log.Logf("[rtcp] bind on %s failure", l.addr)
-		return nil, fmt.Errorf("Bind on %s failure", l.addr.String())
-	}
-	log.Logf("[rtcp] BIND ON %s OK", rep.Addr)
-
-	// Upgrade connection to multiplex stream.
-	session, err := smux.Server(conn, smux.DefaultConfig())
-	if err != nil {
-		return nil, err
-	}
-	l.session = &muxSession{
-		conn:    conn,
-		session: session,
-	}
-
-	return l.session, nil
-}
-
-func (l *tcpRemoteForwardListener) waitConnectSOCKS5(conn net.Conn) (net.Conn, error) {
-	conn, err := socks5Handshake(conn, userSocks5HandshakeOption(l.chain.LastNode().User))
-	if err != nil {
-		return nil, err
-	}
-	req := gosocks5.NewRequest(gosocks5.CmdBind, toSocksAddr(l.addr))
-	if err := req.Write(conn); err != nil {
-		log.Log("[rtcp] SOCKS5 BIND request: ", err)
-		return nil, err
-	}
-
-	// first reply, bind status
-	conn.SetReadDeadline(time.Now().Add(ReadTimeout))
-	rep, err := gosocks5.ReadReply(conn)
-	if err != nil {
-		log.Log("[rtcp] SOCKS5 BIND reply: ", err)
-		return nil, err
-	}
-	conn.SetReadDeadline(time.Time{})
-	if rep.Rep != gosocks5.Succeeded {
-		log.Logf("[rtcp] bind on %s failure", l.addr)
-		return nil, fmt.Errorf("Bind on %s failure", l.addr.String())
-	}
-	log.Logf("[rtcp] BIND ON %s OK", rep.Addr)
-
-	// second reply, peer connected
-	rep, err = gosocks5.ReadReply(conn)
-	if err != nil {
-		log.Log("[rtcp]", err)
-		return nil, err
-	}
-	if rep.Rep != gosocks5.Succeeded {
-		log.Logf("[rtcp] peer connect failure: %d", rep.Rep)
-		return nil, errors.New("peer connect failure")
-	}
-
-	log.Logf("[rtcp] PEER %s CONNECTED", rep.Addr)
-	return conn, nil
-}
-
-func (l *tcpRemoteForwardListener) Addr() net.Addr {
-	if l.ln != nil {
-		return l.ln.Addr()
-	}
-	return l.addr
-}
-
-func (l *tcpRemoteForwardListener) Close() error {
-	if l.ln != nil {
-		return l.ln.Close()
-	}
-
-	l.closeMux.Lock()
-	defer l.closeMux.Unlock()
-
-	select {
-	case <-l.closed:
-		return nil
-	default:
-		close(l.closed)
-	}
-	return nil
-}
+//// TCPRemoteForwardListener creates a Listener for TCP remote port forwarding server.
+//func TCPRemoteForwardListener(addr string, chain *Chain) (Listener, error) {
+//	laddr, err := net.ResolveTCPAddr("tcp", addr)
+//	if err != nil {
+//		return nil, err
+//	}
+//
+//	ln := &tcpRemoteForwardListener{
+//		addr:     laddr,
+//		chain:    chain,
+//		connChan: make(chan net.Conn, 1024),
+//		closed:   make(chan struct{}),
+//	}
+//
+//	if !ln.isChainValid() {
+//		ln.ln, err = net.Listen("tcp", ln.addr.String())
+//		return ln, err
+//	}
+//
+//	go ln.listenLoop()
+//
+//	return ln, err
+//}
+//
+//func (l *tcpRemoteForwardListener) isChainValid() bool {
+//	if l.chain.IsEmpty() {
+//		return false
+//	}
+//
+//	lastNode := l.chain.LastNode()
+//	if (lastNode.Protocol == "forward" && lastNode.Transport == "ssh") ||
+//		lastNode.Protocol == "socks5" || lastNode.Protocol == "" {
+//		return true
+//	}
+//	return false
+//}
+//
+//func (l *tcpRemoteForwardListener) listenLoop() {
+//	var tempDelay time.Duration
+//
+//	for {
+//		conn, err := l.accept()
+//
+//		select {
+//		case <-l.closed:
+//			if conn != nil {
+//				conn.Close()
+//			}
+//			return
+//		default:
+//		}
+//
+//		if err != nil {
+//			if tempDelay == 0 {
+//				tempDelay = 1000 * time.Millisecond
+//			} else {
+//				tempDelay *= 2
+//			}
+//			if max := 6 * time.Second; tempDelay > max {
+//				tempDelay = max
+//			}
+//			log.Logf("[rtcp] accept error: %v; retrying in %v", err, tempDelay)
+//			time.Sleep(tempDelay)
+//			continue
+//		}
+//
+//		tempDelay = 0
+//
+//		select {
+//		case l.connChan <- conn:
+//		default:
+//			conn.Close()
+//			log.Logf("[rtcp] %s - %s: connection queue is full", conn.RemoteAddr(), conn.LocalAddr())
+//		}
+//	}
+//}
+//
+//func (l *tcpRemoteForwardListener) Accept() (conn net.Conn, err error) {
+//	if l.ln != nil {
+//		return l.ln.Accept()
+//	}
+//
+//	select {
+//	case conn = <-l.connChan:
+//	case <-l.closed:
+//		err = errors.New("closed")
+//	}
+//
+//	return
+//}
+//
+//func (l *tcpRemoteForwardListener) accept() (conn net.Conn, err error) {
+//	lastNode := l.chain.LastNode()
+//	if lastNode.Protocol == "forward" && lastNode.Transport == "ssh" {
+//		return l.chain.Dial(l.addr.String())
+//	}
+//
+//	if l.isChainValid() {
+//		if lastNode.GetBool("mbind") {
+//			return l.muxAccept() // multiplexing support for binding.
+//		}
+//
+//		cc, er := l.chain.Conn()
+//		if er != nil {
+//			return nil, er
+//		}
+//		conn, err = l.waitConnectSOCKS5(cc)
+//		if err != nil {
+//			cc.Close()
+//		}
+//	}
+//	return
+//}
+//
+//func (l *tcpRemoteForwardListener) muxAccept() (conn net.Conn, err error) {
+//	session, err := l.getSession()
+//	if err != nil {
+//		return nil, err
+//	}
+//	cc, err := session.Accept()
+//	if err != nil {
+//		session.Close()
+//		return nil, err
+//	}
+//
+//	return cc, nil
+//}
+//
+//func (l *tcpRemoteForwardListener) getSession() (s *muxSession, err error) {
+//	l.sessionMux.Lock()
+//	defer l.sessionMux.Unlock()
+//
+//	if l.session != nil && !l.session.IsClosed() {
+//		return l.session, nil
+//	}
+//
+//	conn, err := l.chain.Conn()
+//	if err != nil {
+//		return nil, err
+//	}
+//
+//	defer func(c net.Conn) {
+//		if err != nil {
+//			c.Close()
+//		}
+//	}(conn)
+//
+//	conn.SetDeadline(time.Now().Add(HandshakeTimeout))
+//	defer conn.SetDeadline(time.Time{})
+//
+//	conn, err = socks5Handshake(conn, userSocks5HandshakeOption(l.chain.LastNode().User))
+//	if err != nil {
+//		return nil, err
+//	}
+//	req := gosocks5.NewRequest(CmdMuxBind, toSocksAddr(l.addr))
+//	if err := req.Write(conn); err != nil {
+//		log.Log("[rtcp] SOCKS5 BIND request: ", err)
+//		return nil, err
+//	}
+//
+//	rep, err := gosocks5.ReadReply(conn)
+//	if err != nil {
+//		log.Log("[rtcp] SOCKS5 BIND reply: ", err)
+//		return nil, err
+//	}
+//	if rep.Rep != gosocks5.Succeeded {
+//		log.Logf("[rtcp] bind on %s failure", l.addr)
+//		return nil, fmt.Errorf("Bind on %s failure", l.addr.String())
+//	}
+//	log.Logf("[rtcp] BIND ON %s OK", rep.Addr)
+//
+//	// Upgrade connection to multiplex stream.
+//	session, err := smux.Server(conn, smux.DefaultConfig())
+//	if err != nil {
+//		return nil, err
+//	}
+//	l.session = &muxSession{
+//		conn:    conn,
+//		session: session,
+//	}
+//
+//	return l.session, nil
+//}
+//
+//func (l *tcpRemoteForwardListener) waitConnectSOCKS5(conn net.Conn) (net.Conn, error) {
+//	conn, err := socks5Handshake(conn, userSocks5HandshakeOption(l.chain.LastNode().User))
+//	if err != nil {
+//		return nil, err
+//	}
+//	req := gosocks5.NewRequest(gosocks5.CmdBind, toSocksAddr(l.addr))
+//	if err := req.Write(conn); err != nil {
+//		log.Log("[rtcp] SOCKS5 BIND request: ", err)
+//		return nil, err
+//	}
+//
+//	// first reply, bind status
+//	conn.SetReadDeadline(time.Now().Add(ReadTimeout))
+//	rep, err := gosocks5.ReadReply(conn)
+//	if err != nil {
+//		log.Log("[rtcp] SOCKS5 BIND reply: ", err)
+//		return nil, err
+//	}
+//	conn.SetReadDeadline(time.Time{})
+//	if rep.Rep != gosocks5.Succeeded {
+//		log.Logf("[rtcp] bind on %s failure", l.addr)
+//		return nil, fmt.Errorf("Bind on %s failure", l.addr.String())
+//	}
+//	log.Logf("[rtcp] BIND ON %s OK", rep.Addr)
+//
+//	// second reply, peer connected
+//	rep, err = gosocks5.ReadReply(conn)
+//	if err != nil {
+//		log.Log("[rtcp]", err)
+//		return nil, err
+//	}
+//	if rep.Rep != gosocks5.Succeeded {
+//		log.Logf("[rtcp] peer connect failure: %d", rep.Rep)
+//		return nil, errors.New("peer connect failure")
+//	}
+//
+//	log.Logf("[rtcp] PEER %s CONNECTED", rep.Addr)
+//	return conn, nil
+//}
+//
+//func (l *tcpRemoteForwardListener) Addr() net.Addr {
+//	if l.ln != nil {
+//		return l.ln.Addr()
+//	}
+//	return l.addr
+//}
+//
+//func (l *tcpRemoteForwardListener) Close() error {
+//	if l.ln != nil {
+//		return l.ln.Close()
+//	}
+//
+//	l.closeMux.Lock()
+//	defer l.closeMux.Unlock()
+//
+//	select {
+//	case <-l.closed:
+//		return nil
+//	default:
+//		close(l.closed)
+//	}
+//	return nil
+//}
 
 type udpRemoteForwardListener struct {
 	addr     net.Addr
