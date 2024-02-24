@@ -17,10 +17,10 @@ require (
 	github.com/miekg/dns v1.1.47
 	github.com/quic-go/quic-go v0.41.0
 	github.com/ryanuber/go-glob v1.0.0
-	github.com/shadowsocks/go-shadowsocks2 v0.1.5
-	github.com/shadowsocks/shadowsocks-go v0.0.0-20200409064450-3e585ff90601
-	github.com/xtaci/kcp-go/v5 v5.6.1
-	github.com/xtaci/smux v1.5.16
+	//github.com/shadowsocks/go-shadowsocks2 v0.1.5
+	//github.com/shadowsocks/shadowsocks-go v0.0.0-20200409064450-3e585ff90601
+	//github.com/xtaci/kcp-go/v5 v5.6.1
+	//github.com/xtaci/smux v1.5.16
 	github.com/xtaci/tcpraw v1.2.25
 	golang.org/x/net v0.10.0
 )
